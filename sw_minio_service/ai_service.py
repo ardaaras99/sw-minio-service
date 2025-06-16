@@ -5,7 +5,8 @@ from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredPDFLoader
 from pydantic import BaseModel, Field
-from sw_onto_generation.Ontologies.Base.configs import DocumentType
+
+from sw_minio_service import DocumentTypeEnum
 
 
 class AiServiceConfig(BaseModel):
@@ -31,7 +32,7 @@ class AiService:
         text = "\n".join([doc.page_content for doc in docs])
 
         class Trial(BaseModel):
-            document_type: DocumentType
+            document_type: DocumentTypeEnum
             score: int = Field(description="describes how confident the model is about the document type", ge=0, le=100)
             rationale: str = Field(description="sence bu döküman neden senin seçtiğin türe ait")
 
@@ -48,6 +49,6 @@ class AiService:
 
         os.remove(temp_file_path)
         if result.score < 50:
-            return text, DocumentType.GenelSozlesme
+            return text, None
         else:
             return text, result.document_type.name

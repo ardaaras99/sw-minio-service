@@ -19,7 +19,6 @@ dependencies = [
     "langchain-community>=0.3.20",
     "pypdf2>=3.0.1",
     "unstructured[pdf]>=0.17.2",
-    "sw-legal-doc-classifier",
     "sw-onto-generation",
 ]
 
@@ -85,5 +84,4 @@ major_version_zero = true
 update_changelog_on_bump = true
 
 [tool.uv.sources]
-sw-legal-doc-classifier = { git = "https://github.com/ardaaras99/sw-legal-doc-classifier.git" }
 sw-onto-generation = { git = "https://github.com/ardaaras99/sw-onto-generation.git" }
