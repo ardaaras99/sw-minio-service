@@ -21,6 +21,7 @@ dependencies = [
     "unstructured[pdf]>=0.17.2",
     "sw-onto-generation",
     "agno>=1.6.2",
+    "openai>=1.86.0",
 ]
 
 [dependency-groups]
