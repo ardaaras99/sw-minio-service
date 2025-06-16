@@ -20,6 +20,7 @@ dependencies = [
     "pypdf2>=3.0.1",
     "unstructured[pdf]>=0.17.2",
     "sw-onto-generation",
+    "agno>=1.6.2",
 ]
 
 [dependency-groups]
