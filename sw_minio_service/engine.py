@@ -1,171 +1,174 @@
 import hashlib
 import io
 import json
-from typing import Literal
+import logging
 
 from minio import Minio
-from pydantic import BaseModel
-from rich import print as rprint
+from rich.traceback import install as install_rich_traceback
 
-from sw_minio_service.ai_service import AiService, AiServiceConfig
+from sw_minio_service import DocumentTypeEnum
+from sw_minio_service.ai_service import AiService
+from sw_minio_service.configs import EngineConfig
 
-
-class MinioConfig(BaseModel):
-    endpoint: str
-    access_key: str
-    secret_key: str
-    bucket_name: str
-    secure: bool = False
-    ai_flag: bool = False
-    loader: Literal["pypdf", "unstructured"] = "unstructured"
+# Configure Rich logging and traceback
+install_rich_traceback(show_locals=False)
+logger = logging.getLogger("sw_minio_service")
 
 
 class MinioEngine:
-    def __init__(self, config: MinioConfig, clear_flag: bool = False):
-        self.config = config
-        self.minio_client = Minio(endpoint=config.endpoint, access_key=config.access_key, secret_key=config.secret_key, secure=config.secure)
-        if clear_flag:
-            self.clear_all_buckets()
-        # Ensure bucket exists
-        if not self.minio_client.bucket_exists(self.config.bucket_name):
-            self.minio_client.make_bucket(self.config.bucket_name)
-            self.create_mappings()
-        else:
-            print(f"Bucket {self.config.bucket_name} already exists")
+    def __init__(self, config: EngineConfig):
+        self.minio_config = config.minio_config
+        self.ai_service_config = config.ai_service_config
+        self.minio_client = Minio(endpoint=self.minio_config.endpoint, access_key=self.minio_config.access_key, secret_key=self.minio_config.secret_key, secure=self.minio_config.secure)
+        self.ai_service = AiService(config=self.ai_service_config)
+        self._ensure_bucket_exists()
 
-    def get_hash_filename_mappings(self) -> tuple[dict[str, str], dict[str, str]]:
+    def _ensure_bucket_exists(self) -> None:
+        if not self.minio_client.bucket_exists(self.minio_config.bucket_name):
+            self.minio_client.make_bucket(self.minio_config.bucket_name)
+            self._create_mappings()
+        else:
+            logger.info(f"Bucket {self.minio_config.bucket_name} already exists")
+
+    def _create_mappings(self) -> None:
+        """Create empty mappings files in the mappings directory."""
+        empty_json = json.dumps({}).encode("utf-8")
+        self.minio_client.put_object(
+            data=io.BytesIO(empty_json),
+            bucket_name=self.minio_config.bucket_name,
+            object_name="mappings/file_hash_to_filename.json",
+            length=len(empty_json),
+        )
+        self.minio_client.put_object(
+            data=io.BytesIO(empty_json),
+            bucket_name=self.minio_config.bucket_name,
+            object_name="mappings/filename_to_file_hash.json",
+            length=len(empty_json),
+        )
+        logger.info(f"Created empty mapping files in bucket {self.minio_config.bucket_name}")
+
+    def _get_hash_filename_mappings(self) -> tuple[dict[str, str], dict[str, str]]:
         """Read the hash-to-filename and filename-to-hash mappings from MinIO."""
         try:
-            response1 = self.minio_client.get_object(self.config.bucket_name, "mappings/file_hash_to_filename.json")
-            response2 = self.minio_client.get_object(self.config.bucket_name, "mappings/filename_to_file_hash.json")
+            response1 = self.minio_client.get_object(self.minio_config.bucket_name, "mappings/file_hash_to_filename.json")
+            response2 = self.minio_client.get_object(self.minio_config.bucket_name, "mappings/filename_to_file_hash.json")
             hash_to_filename = json.loads(response1.read().decode("utf-8"))
             filename_to_hash = json.loads(response2.read().decode("utf-8"))
             return hash_to_filename, filename_to_hash
         except Exception as e:
-            print(f"Error reading mappings: {e}")
-            return {}, {}
+            error_msg = f"Error reading mappings: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
 
-    def upload_file(self, file_bytes: bytes, file_name: str) -> None:
-        """Upload a file to MinIO and store its hash-to-filename mapping.
+    def _store_hash_to_file_mapping(self, file_hash: str, filename: str) -> None:
+        hash_to_filename, filename_to_hash = self._get_hash_filename_mappings()
 
-        Args:
-            file_bytes: The bytes of the file to upload
-            file_name: The name of the file
-
-        Raises:
-            ValueError: If a file with the same content hash already exists
-        """
-        file_hash = hashlib.sha256(file_bytes).hexdigest()
-
-        # Check if file with same hash already exists by reading the mappings file
-        hash_to_filename, _ = self.get_hash_filename_mappings()
-
-        if file_hash in hash_to_filename:
-            existing_filename = hash_to_filename[file_hash]
-            raise ValueError(f"File with identical content already exists as '{existing_filename}' (hash: {file_hash})")
-
-        bucket_dir = f"{file_hash}/{file_name}"
-
-        # Upload the raw pdf file
-        self.minio_client.put_object(
-            data=io.BytesIO(file_bytes),
-            bucket_name=self.config.bucket_name,
-            object_name=bucket_dir,
-            length=len(file_bytes),
-        )
-
-        # Upload the the extracted content from Unstructured as txt file
-        # pop extension from file_name
-        if self.config.ai_flag:
-            file_name_without_extension = file_name.split(".")[0]
-
-            ai_service = AiService(config=AiServiceConfig(pdf_loader=self.config.loader))
-
-            text, text_type = ai_service.extract_text_and_type(file_bytes, file_name)
-
-            self.minio_client.put_object(
-                data=io.BytesIO(text.encode("utf-8")),  # text
-                bucket_name=self.config.bucket_name,
-                object_name=f"{file_hash}/{file_name_without_extension}_{text_type}_extracted.txt",
-                length=len(text.encode("utf-8")),
-            )
-
-        # Store a mapping from hash to filename
-        self.store_hash_to_file_mapping(file_hash, file_name)
-
-    def store_hash_to_file_mapping(self, file_hash: str, filename: str) -> None:
-        # Read the existing mappings using the helper method
-        hash_to_filename, filename_to_hash = self.get_hash_filename_mappings()
-
-        # Update the mappings
         hash_to_filename[file_hash] = filename
         filename_to_hash[filename] = file_hash
 
-        # Store the mappings
         hash_to_filename_json = json.dumps(hash_to_filename).encode("utf-8")
         filename_to_hash_json = json.dumps(filename_to_hash).encode("utf-8")
 
         self.minio_client.put_object(
             data=io.BytesIO(hash_to_filename_json),
-            bucket_name=self.config.bucket_name,
+            bucket_name=self.minio_config.bucket_name,
             object_name="mappings/file_hash_to_filename.json",
             length=len(hash_to_filename_json),
         )
         self.minio_client.put_object(
             data=io.BytesIO(filename_to_hash_json),
-            bucket_name=self.config.bucket_name,
+            bucket_name=self.minio_config.bucket_name,
             object_name="mappings/filename_to_file_hash.json",
             length=len(filename_to_hash_json),
         )
 
-    def download_file(self, file_identifier: str, is_hash: bool = False) -> tuple[bytes, str]:
-        """Download a file from MinIO using either its hash or filename.
-
-        Args:
-            file_identifier: Either the file hash or filename
-            is_hash: If True, file_identifier is a hash; otherwise, it's a filename
-
-        Returns:
-            A tuple of (file_bytes, filename)
-
-        Raises:
-            ValueError: If the file doesn't exist
-        """
-        if is_hash:
-            file_hash = file_identifier
-            filename = self.find_filename_from_hash(file_hash)
-            if not filename:
-                raise ValueError(f"No file found with hash {file_hash}")
-        else:
-            filename = file_identifier
-            file_hash = self.find_hash_from_filename(filename)
-            if not file_hash:
-                raise ValueError(f"No file found with name {filename}")
-
-        object_name = f"{file_hash}/{filename}"
-
+    def _find_hash_from_filename(self, filename: str) -> str:
+        """Find the hash associated with a given filename."""
         try:
-            response = self.minio_client.get_object(bucket_name=self.config.bucket_name, object_name=object_name)
-            file_bytes = response.read()
-            return file_bytes, filename
+            _, filename_to_hash = self._get_hash_filename_mappings()
+            return filename_to_hash.get(filename, "")
         except Exception as e:
-            raise ValueError(f"Error downloading file: {e}") from e
+            logger.error(f"Error finding hash from filename: {e}")
+            return ""
 
-    def create_mappings(self) -> None:
-        """Create empty mappings files in the mappings directory."""
-        empty_json = json.dumps({}).encode("utf-8")
+    def upload_file(self, file_bytes: bytes, file_name: str) -> DocumentTypeEnum:
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        hash_to_filename, _ = self._get_hash_filename_mappings()
+
+        if file_hash in hash_to_filename:
+            existing_filename = hash_to_filename[file_hash]
+            error_msg = f"File with identical content already exists as '{existing_filename}' (hash: {file_hash})"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+
+        # Upload the raw file
         self.minio_client.put_object(
-            data=io.BytesIO(empty_json),
-            bucket_name=self.config.bucket_name,
-            object_name="mappings/file_hash_to_filename.json",
-            length=len(empty_json),
+            data=io.BytesIO(file_bytes),
+            bucket_name=self.minio_config.bucket_name,
+            object_name=f"{file_hash}/{file_name}",
+            length=len(file_bytes),
         )
+
+        # Extract text and determine document type
+        file_name_without_extension = file_name.split(".")[0]
+        text, text_type = self.ai_service.extract_text_and_type(file_bytes, file_name)
+
+        # Upload the extracted text
         self.minio_client.put_object(
-            data=io.BytesIO(empty_json),
-            bucket_name=self.config.bucket_name,
-            object_name="mappings/filename_to_file_hash.json",
-            length=len(empty_json),
+            data=io.BytesIO(text.encode("utf-8")),
+            bucket_name=self.minio_config.bucket_name,
+            object_name=f"{file_hash}/{file_name_without_extension}_extracted.txt",
+            length=len(text.encode("utf-8")),
         )
+
+        # Store document type metadata
+        metadata = {"document_type": text_type}
+        metadata_json = json.dumps(metadata).encode("utf-8")
+        self.minio_client.put_object(
+            data=io.BytesIO(metadata_json),
+            bucket_name=self.minio_config.bucket_name,
+            object_name=f"{file_hash}/{file_name_without_extension}_metadata.json",
+            length=len(metadata_json),
+        )
+
+        self._store_hash_to_file_mapping(file_hash, file_name)
+        logger.info(f"Successfully uploaded and processed file: {file_name} (type: {text_type})")
+        return text_type
+
+    def get_text_and_type(self, file_name: str) -> tuple[str, DocumentTypeEnum]:
+        file_hash = self._find_hash_from_filename(file_name)
+        if not file_hash:
+            raise ValueError(f"No file found with name {file_name}")
+
+        file_name_without_extension = file_name.split(".")[0]
+
+        # Get document type from metadata
+        document_type = DocumentTypeEnum.UNKNOWN
+        try:
+            metadata_path = f"{file_hash}/{file_name_without_extension}_metadata.json"
+            response = self.minio_client.get_object(bucket_name=self.minio_config.bucket_name, object_name=metadata_path)
+            metadata = json.loads(response.read().decode("utf-8"))
+            doc_type_str = metadata.get("document_type")
+            if doc_type_str:
+                try:
+                    document_type = DocumentTypeEnum(doc_type_str)
+                except (ValueError, KeyError):
+                    logger.warning(f"Invalid document type in metadata: {doc_type_str}")
+            response.close()
+            response.release_conn()
+        except Exception as e:
+            logger.warning(f"Metadata file not found or invalid: {e}")
+
+        # Get extracted text
+        try:
+            text_path = f"{file_hash}/{file_name_without_extension}_extracted.txt"
+            response = self.minio_client.get_object(bucket_name=self.minio_config.bucket_name, object_name=text_path)
+            extracted_text = response.read().decode("utf-8")
+            response.close()
+            response.release_conn()
+            return extracted_text, document_type
+        except Exception as e:
+            raise FileNotFoundError(f"No extracted text file found for {file_name}: {e}")  # noqa: B904
 
     def clear_all_buckets(self) -> None:
         """Delete all objects from all buckets and then remove the buckets."""
@@ -175,4 +178,4 @@ class MinioEngine:
             for obj in objects:
                 self.minio_client.remove_object(bucket.name, obj.object_name)
             self.minio_client.remove_bucket(bucket.name)
-            rprint(f"Bucket {bucket.name} has been cleared and removed")
+            logger.warning(f"Bucket {bucket.name} has been cleared and removed")
