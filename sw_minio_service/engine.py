@@ -98,8 +98,8 @@ class MinioEngine:
         if file_hash in hash_to_filename:
             existing_filename = hash_to_filename[file_hash]
             error_msg = f"File with identical content already exists as '{existing_filename}' (hash: {file_hash})"
-            logger.warning(error_msg)
-            # raise ValueError(error_msg)
+            # logger.warning(error_msg)
+            raise ValueError(error_msg)
 
         # Upload the raw file
         self.minio_client.put_object(
