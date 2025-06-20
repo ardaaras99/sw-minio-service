@@ -59,7 +59,10 @@ class Engine:
         _, filename_to_hash = self.mapper.get_mappings()
         pdf_file_hash = filename_to_hash[pdf_file_name]
 
-        self.minio_client.remove_object(bucket_name=self.config.bucket_name, object_name=f"{pdf_file_hash}")
+        # list object and recursively remove all objects in the bucket
+        objects = self.minio_client.list_objects(bucket_name=self.config.bucket_name, recursive=True)
+        for obj in objects:
+            self.minio_client.remove_object(bucket_name=self.config.bucket_name, object_name=obj.object_name)
 
         self.mapper.delete_instance_from_mappings(file_hash=pdf_file_hash, filename=pdf_file_name)
 
