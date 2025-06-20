@@ -19,7 +19,6 @@ class Engine:
         self.config = config
         self.minio_client = Minio(endpoint=self.config.endpoint, access_key=self.config.access_key, secret_key=self.config.secret_key, secure=self.config.secure)
         self.mapper = Mapper(minio_client=self.minio_client, bucket_name=self.config.bucket_name)
-        self._ensure_bucket_exists()
 
     def _ensure_bucket_exists(self) -> None:
         if not self.minio_client.bucket_exists(self.config.bucket_name):
