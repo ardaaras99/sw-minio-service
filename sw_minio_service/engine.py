@@ -7,7 +7,7 @@ from sw_minio_service.mapper import Mapper
 
 
 class EngineConfig(BaseModel):
-    endpoint: str
+    endpoint: int
     access_key: str
     secret_key: str
     bucket_name: str
