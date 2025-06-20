@@ -32,7 +32,7 @@ class Engine:
         if pdf_file_hash in hash_to_filename:
             existing_filename = hash_to_filename[pdf_file_hash]
             raise ValueError(f"File with identical content already exists as '{existing_filename}' (hash: {pdf_file_hash})")
-        return True
+        return False
 
     def upload_pdf_file(self, pdf_file_bytes: bytes, pdf_file_name: str, pdf_txt_format: str, pdf_file_hash: str) -> None:
         # Upload the raw file
