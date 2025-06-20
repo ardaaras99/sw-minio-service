@@ -62,7 +62,7 @@ class Engine:
         self.minio_client.remove_object(bucket_name=self.config.bucket_name, object_name=f"{pdf_file_hash}/{pdf_file_name}")
         self.minio_client.remove_object(bucket_name=self.config.bucket_name, object_name=f"{pdf_file_hash}/{pdf_file_name}_extracted.txt")
 
-        self.mapper.delete_instance_from_mappings(pdf_file_name)
+        self.mapper.delete_instance_from_mappings(file_hash=pdf_file_hash, filename=pdf_file_name)
 
     def clear_all_buckets(self) -> None:
         """Delete all objects from all buckets and then remove the buckets."""
