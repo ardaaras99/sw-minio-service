@@ -60,7 +60,7 @@ class Engine:
         pdf_file_hash = filename_to_hash[pdf_file_name]
 
         # list object and recursively remove all objects in the bucket
-        objects = self.minio_client.list_objects(bucket_name=self.config.bucket_name, recursive=True)
+        objects = self.minio_client.list_objects(bucket_name=self.config.bucket_name, prefix=f"{pdf_file_hash}/", recursive=True)
         for obj in objects:
             self.minio_client.remove_object(bucket_name=self.config.bucket_name, object_name=obj.object_name)
 
