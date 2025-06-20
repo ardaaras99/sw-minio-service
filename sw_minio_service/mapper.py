@@ -12,7 +12,7 @@ class Mapper:
         self.filename_to_hash_path = "mappings/filename_to_hash.json"
 
     def create_empty_mappings(self) -> None:
-        pass
+        self.put_mappings({}, {})
 
     def get_mappings(self) -> tuple[dict[str, str], dict[str, str]]:
         res1 = self.minio_client.get_object(bucket_name=self.bucket_name, object_name=self.hash_to_filename_path)

@@ -24,7 +24,7 @@ class Engine:
     def _ensure_bucket_exists(self) -> None:
         if not self.minio_client.bucket_exists(self.config.bucket_name):
             self.minio_client.make_bucket(self.config.bucket_name)
-            self._create_empty_mappings()
+            self.mapper.create_empty_mappings()
 
     def check_if_file_exists(self, pdf_file_hash: str) -> bool:
         hash_to_filename, _ = self.mapper.get_mappings()
