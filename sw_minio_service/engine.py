@@ -1,8 +1,9 @@
 import io
 
-from mapper import Mapper
 from minio import Minio
 from pydantic import BaseModel
+
+from sw_minio_service.mapper import Mapper
 
 
 class EngineConfig(BaseModel):
