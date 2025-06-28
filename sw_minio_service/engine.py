@@ -74,3 +74,11 @@ class Engine:
             for obj in objects:
                 self.minio_client.remove_object(bucket.name, obj.object_name)
             self.minio_client.remove_bucket(bucket.name)
+
+    def get_txt_format_of_pdf_file(self, pdf_file_hash: str) -> str:
+        hash_to_filename, _ = self.mapper.get_mappings()
+        pdf_file_name = hash_to_filename[pdf_file_hash]
+        bucket_name = self.config.bucket_name
+        object_name = f"{pdf_file_hash}/{pdf_file_name.split('.')[0]}_extracted.txt"
+        text = self.minio_client.get_object(bucket_name=bucket_name, object_name=object_name).data.decode("utf-8")
+        return text
